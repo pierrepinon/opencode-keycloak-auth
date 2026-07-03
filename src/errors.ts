@@ -36,9 +36,27 @@ export class KeycloakNetworkError extends Error {
 /** A refresh attempt failed; the caller should fall back to an interactive login. */
 export class RefreshFailedError extends Error {
   constructor(cause: unknown) {
-    super(`Token refresh failed (${describe(cause)}). ` + `Please log in again with: opencode auth login.`);
+    super(RefreshFailedError.message(cause));
     this.name = "RefreshFailedError";
     this.cause = cause;
+  }
+
+  /**
+   * `invalid_grant` on a refresh means the refresh token is no longer accepted —
+   * almost always because the Keycloak SSO session expired (idle/max lifespan)
+   * while OpenCode was idle overnight. That is a re-login, not a bug, so we say
+   * so plainly and point at the durable fix (offline tokens).
+   */
+  private static message(cause: unknown): string {
+    if (cause instanceof KeycloakOAuthError && cause.error === "invalid_grant") {
+      return (
+        `Keycloak session expired (invalid_grant): the refresh token is no longer valid, ` +
+        `typically because the SSO session hit its idle/max lifespan. ` +
+        `Log in again with: opencode auth login. ` +
+        `To avoid this recurring, request an offline token (scope "offline_access", enabled by default).`
+      );
+    }
+    return `Token refresh failed (${describe(cause)}). Please log in again with: opencode auth login.`;
   }
 }
 

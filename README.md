@@ -109,6 +109,7 @@ environment variables.**
 | `OPENCODE_KC_ISSUER`          | `issuer`                | — (required) | Realm issuer URL, e.g. `https://kc.example.com/realms/agents` |
 | `OPENCODE_KC_CLIENT_ID`       | `clientId`              | — (required) | Public client id                                              |
 | `OPENCODE_KC_SCOPES`          | `scopes`                | `openid`     | Space/comma list; `openid` always added                       |
+| `OPENCODE_KC_OFFLINE_ACCESS`  | `offlineAccess`         | `true`       | Add `offline_access` for a durable refresh token (see below)  |
 | `OPENCODE_KC_PROVIDER_ID`     | `providerId`            | `keycloak`   | Provider id the auth hook attaches to                         |
 | `OPENCODE_KC_CALLBACK_HOST`   | `callbackHost`          | `127.0.0.1`  | Localhost callback bind host                                  |
 | `OPENCODE_KC_CALLBACK_PORT`   | `callbackPort`          | `49170`      | Localhost callback port (`0` = ephemeral)                     |
@@ -132,6 +133,33 @@ Create a client in your realm with:
   (add any other ports you configure; for `callbackPort: 0` allow
   `http://127.0.0.1/*`)
 - **Web Origins:** not required (no browser-based XHR to Keycloak from the app).
+
+### Staying logged in (offline tokens)
+
+By default the plugin requests the **`offline_access`** scope so a single
+`opencode auth login` keeps working across days. This matters because a *regular*
+Keycloak refresh token only lives as long as the **SSO session**, which is capped
+by the realm's **SSO Session Idle** (default 30 min) and **SSO Session Max**
+(default 10h). Leave OpenCode overnight and the session expires, the refresh
+fails with `invalid_grant`, and you are forced to log in again every morning.
+
+> Note: the client's **Access Token Lifespan** does *not* control this — it only
+> sets how long each access token is valid, not the refresh token / session.
+
+An **offline token** is exempt from those caps: it is governed instead by
+**Offline Session Idle** (default 30 days, refreshed on each use) and, if
+enabled, Offline Session Max. That is the difference between "log in once" and
+"log in every morning".
+
+Requirements on the Keycloak side:
+
+- The client must have `offline_access` in its **assigned optional client
+  scopes** (the realm default for all clients; `fullScopeAllowed` does not affect
+  this — it governs role mappings, not client scopes).
+- Optionally raise **Offline Session Idle** if 30 days is too short.
+
+Set `OPENCODE_KC_OFFLINE_ACCESS=false` (or `offlineAccess: false`) only for
+realms that do not grant `offline_access`.
 
 ### Claims required by the provider
 
@@ -237,6 +265,14 @@ opencode auth login -p keycloak --print-logs --log-level DEBUG
 
 Since this plugin now registers the provider even when the config is incomplete,
 selecting the **`⚠ not configured`** method prints the exact missing value.
+
+**`Unexpected server error` every morning / after being idle, fixed by
+re-running `opencode auth login`.** The stored refresh token was rejected with
+`invalid_grant` because the Keycloak **SSO session expired** overnight (idle or
+max lifespan). This is a realm/session setting, not a plugin bug — note it also
+affects OpenCode's native MCP OAuth against the same realm. Fix it durably with
+an **offline token**: keep `offline_access` enabled (the default) and make sure
+the client is granted that scope. See _Staying logged in (offline tokens)_.
 
 **`Failed to fetch models.dev`.** Harmless — see the offline note in Install. Set
 `OPENCODE_DISABLE_MODELS_FETCH=1` to silence it.

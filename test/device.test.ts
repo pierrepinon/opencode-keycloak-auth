@@ -28,7 +28,7 @@ describe("device authorization grant", () => {
     expect(device.expiresAt).toBe(600_000);
     expect(device.intervalMs).toBe(5000);
     expect(fetchImpl.calls[0]?.params.get("client_id")).toBe("opencode-cli");
-    expect(fetchImpl.calls[0]?.params.get("scope")).toBe("openid");
+    expect(fetchImpl.calls[0]?.params.get("scope")).toBe("openid offline_access");
   });
 
   it("maps token-endpoint statuses correctly", async () => {

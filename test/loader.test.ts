@@ -57,7 +57,10 @@ describe("loader", () => {
     const now = () => 999_000;
 
     const loader = createLoader(config, { client: client as never, fetchImpl, now });
-    await expect(loader(async () => oauth(), provider)).rejects.toBeInstanceOf(RefreshFailedError);
+    const promise = loader(async () => oauth(), provider);
+    await expect(promise).rejects.toBeInstanceOf(RefreshFailedError);
+    // invalid_grant gets an explicit "session expired" message pointing at the fix.
+    await expect(promise).rejects.toThrow(/session expired|offline_access/i);
   });
 
   it("stays out of the way when not authenticated via this OAuth provider", async () => {

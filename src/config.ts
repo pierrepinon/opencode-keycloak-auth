@@ -19,6 +19,13 @@ export interface KeycloakPluginOptions {
   clientId?: string;
   /** Scopes requested. Accepts an array or a space/comma separated string. */
   scopes?: string[] | string;
+  /**
+   * Request an OFFLINE refresh token (adds the `offline_access` scope). Offline
+   * tokens survive SSO Session Idle/Max expiry, so a single login keeps working
+   * across days instead of dying overnight. Default: `true`. Set to `false` for
+   * realms that do not grant the `offline_access` client scope.
+   */
+  offlineAccess?: boolean;
   /** Host the localhost callback server binds to. Default: `127.0.0.1`. */
   callbackHost?: string;
   /** Port the localhost callback server binds to. Default: `49170`. */
@@ -60,6 +67,7 @@ const ENV_PREFIX = "OPENCODE_KC_";
 const DEFAULTS = {
   providerId: "keycloak",
   scopes: ["openid"],
+  offlineAccess: true,
   callbackHost: "127.0.0.1",
   callbackPort: 49170,
   redirectPath: "/callback",
@@ -76,7 +84,7 @@ function env(name: string, source: Env): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-function toScopes(value: readonly string[] | string): string[] {
+function toScopes(value: readonly string[] | string, offlineAccess: boolean): string[] {
   const list = typeof value === "string" ? value.split(/[\s,]+/) : value;
   const seen = new Set<string>();
   for (const raw of list) {
@@ -85,7 +93,19 @@ function toScopes(value: readonly string[] | string): string[] {
   }
   // `openid` is required for OIDC; ensure it is always present.
   seen.add("openid");
+  // `offline_access` yields a long-lived offline refresh token that does not die
+  // with the SSO session — the difference between "log in once" and "log in
+  // every morning". Requested by default; harmless if the realm ignores it.
+  if (offlineAccess) seen.add("offline_access");
   return [...seen];
+}
+
+function toBool(value: string | boolean, label: string): boolean {
+  if (typeof value === "boolean") return value;
+  const v = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  throw new Error(`${label} must be a boolean (true/false), got "${value}".`);
 }
 
 function toPort(value: string | number, label: string): number {
@@ -126,6 +146,7 @@ export function resolveConfig(
   }
 
   const scopesRaw = options.scopes ?? env("SCOPES", source) ?? DEFAULTS.scopes;
+  const offlineAccessRaw = options.offlineAccess ?? env("OFFLINE_ACCESS", source) ?? DEFAULTS.offlineAccess;
   const callbackPortRaw = options.callbackPort ?? env("CALLBACK_PORT", source) ?? DEFAULTS.callbackPort;
   const refreshLeewayRaw =
     options.refreshLeewaySeconds ?? env("REFRESH_LEEWAY", source) ?? DEFAULTS.refreshLeewaySeconds;
@@ -136,7 +157,7 @@ export function resolveConfig(
     providerId: options.providerId ?? env("PROVIDER_ID", source) ?? DEFAULTS.providerId,
     issuer: normalizeIssuer(issuerRaw),
     clientId,
-    scopes: toScopes(scopesRaw),
+    scopes: toScopes(scopesRaw, toBool(offlineAccessRaw, `${ENV_PREFIX}OFFLINE_ACCESS`)),
     callbackHost: options.callbackHost ?? env("CALLBACK_HOST", source) ?? DEFAULTS.callbackHost,
     callbackPort: toPort(callbackPortRaw, `${ENV_PREFIX}CALLBACK_PORT`),
     redirectPath: ensureLeadingSlash(

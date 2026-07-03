@@ -15,7 +15,7 @@ describe("config resolution", () => {
 
     expect(config.issuer).toBe("https://kc.example.com/realms/agents"); // trailing slash trimmed
     expect(config.clientId).toBe("cli");
-    expect(config.scopes).toEqual(["openid", "profile", "aud:api"]);
+    expect(config.scopes).toEqual(["openid", "profile", "aud:api", "offline_access"]);
     expect(config.callbackPort).toBe(55001);
     expect(config.providerId).toBe("keycloak"); // default
   });
@@ -32,6 +32,30 @@ describe("config resolution", () => {
   it("always includes the openid scope", () => {
     const config = resolveConfig({ issuer: "https://kc/realms/r", clientId: "c", scopes: ["profile"] });
     expect(config.scopes).toContain("openid");
+  });
+
+  it("requests offline_access by default (durable refresh token)", () => {
+    const config = resolveConfig({ issuer: "https://kc/realms/r", clientId: "c" });
+    expect(config.scopes).toContain("offline_access");
+  });
+
+  it("omits offline_access when explicitly disabled", () => {
+    const viaOption = resolveConfig({
+      issuer: "https://kc/realms/r",
+      clientId: "c",
+      offlineAccess: false,
+    });
+    expect(viaOption.scopes).not.toContain("offline_access");
+
+    const viaEnv = resolveConfig(
+      {},
+      {
+        OPENCODE_KC_ISSUER: "https://kc/realms/r",
+        OPENCODE_KC_CLIENT_ID: "c",
+        OPENCODE_KC_OFFLINE_ACCESS: "false",
+      },
+    );
+    expect(viaEnv.scopes).not.toContain("offline_access");
   });
 
   it("derives Keycloak endpoints and redirect URI", () => {

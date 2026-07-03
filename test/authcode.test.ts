@@ -17,7 +17,7 @@ describe("authorization code flow", () => {
     expect(url.searchParams.get("response_type")).toBe("code");
     expect(url.searchParams.get("client_id")).toBe("opencode-cli");
     expect(url.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:49170/callback");
-    expect(url.searchParams.get("scope")).toBe("openid");
+    expect(url.searchParams.get("scope")).toBe("openid offline_access");
     expect(url.searchParams.get("code_challenge")).toBe(pkce.challenge);
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe("state-123");
