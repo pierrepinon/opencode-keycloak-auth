@@ -5,3 +5,7 @@ dist
 .DS_Store
 .env
 .env.*
+coverage
+
+# Local, non-project scratch (personal notes, agent prompts, etc.)
+context-switch-agent-prompt.md

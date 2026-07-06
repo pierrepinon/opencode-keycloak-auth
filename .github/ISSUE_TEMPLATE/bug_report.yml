@@ -1,0 +1,50 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! Please do **not** include tokens, authorization
+        codes, or the contents of `auth.json`. For security issues, see
+        [SECURITY.md](../blob/main/SECURITY.md) instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configure the plugin with ...
+        2. Run `opencode auth login`
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Run with `OPENCODE_KC_LOG=debug opencode --print-logs --log-level DEBUG`
+        and paste the relevant `[keycloak-auth]` lines. Redact any secrets.
+      render: shell
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OpenCode version, Node version, OS, Keycloak version.
+      placeholder: "opencode X, node 22, macOS 15, Keycloak 26"
+    validations:
+      required: true

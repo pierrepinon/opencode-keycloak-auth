@@ -4,14 +4,29 @@
   "description": "OpenCode auth plugin: OAuth2/OIDC against Keycloak (Authorization Code + PKCE S256 and Device Authorization Grant) for an OpenAI-compatible provider.",
   "type": "module",
   "license": "MIT",
+  "author": "AyRickk (https://github.com/AyRickk)",
+  "homepage": "https://github.com/AyRickk/opencode-keycloak-auth#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AyRickk/opencode-keycloak-auth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AyRickk/opencode-keycloak-auth/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "opencode",
     "opencode-plugin",
     "keycloak",
     "oidc",
     "oauth2",
+    "openid-connect",
     "pkce",
-    "device-flow"
+    "device-flow",
+    "auth",
+    "sso"
   ],
   "exports": {
     ".": {
@@ -23,7 +38,9 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",

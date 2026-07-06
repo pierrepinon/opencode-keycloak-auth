@@ -1,6 +1,8 @@
 # opencode-keycloak-auth
 
 [![CI](https://github.com/AyRickk/opencode-keycloak-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/AyRickk/opencode-keycloak-auth/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
 An [OpenCode](https://opencode.ai) **auth plugin** that logs in to **Keycloak**
 via OAuth2/OIDC and feeds short-lived, auto-refreshed access tokens to an
@@ -10,6 +12,21 @@ It replaces the pattern of pasting a long-lived static JWT as `apiKey`: OpenCode
 now obtains a real access token from Keycloak and refreshes it automatically.
 **Nothing changes on the provider side** — the Keycloak access token _is_ the JWT
 the provider validates (e.g. JWKS + claim policies).
+
+## Contents
+
+- [Features](#features)
+- [Install](#install)
+- [Configuration](#configuration)
+- [Keycloak client setup](#keycloak-client-setup)
+- [`opencode.json`](#opencodejson)
+- [Logging in](#logging-in)
+- [Logging & diagnostics](#logging--diagnostics)
+- [Troubleshooting](#troubleshooting)
+- [How it maps to the OpenCode auth API](#how-it-maps-to-the-opencode-auth-api)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
 
 ## Features
 
@@ -324,15 +341,37 @@ This plugin targets `@opencode-ai/plugin` ≥ 1.17 (`AuthHook`):
 
 ## Development
 
+Requires **Node.js >= 20**.
+
 ```bash
-npm install
+npm ci
 npm run typecheck
-npm test          # vitest, fetch fully mocked
+npm test          # vitest, fetch/clock fully injected — no network, no real timers
 npm run build     # tsup -> dist/ (ESM + d.ts)
 npm run lint
 npm run format
 ```
 
+Run the full pre-PR check (mirrors CI) in one line:
+
+```bash
+npm run typecheck && npm run lint && npm run format:check && npm test && npm run build
+```
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development setup, project layout, testing conventions, and the (short) house
+rules — chiefly: **no runtime dependencies** and **never log secrets**. Please
+also read the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+
+## Security
+
+This plugin handles OAuth tokens. Please report vulnerabilities privately as
+described in [SECURITY.md](SECURITY.md) — not as public issues.
+
 ## License
 
-MIT
+[MIT](LICENSE) © AyRickk
