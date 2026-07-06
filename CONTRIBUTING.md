@@ -85,6 +85,15 @@ instead of filing a public issue.
 
 ## Releasing (maintainers)
 
-Releases are tag-driven. Bump the version, commit `chore: release vX.Y.Z`, then
-push a `vX.Y.Z` tag — the Release workflow builds and attaches the artifacts to
-the GitHub Release.
+Releases are tag-driven:
+
+1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new
+   `## [X.Y.Z] - <date>` section (and update the compare links at the bottom).
+2. Bump `version` in `package.json`.
+3. Commit `chore: release vX.Y.Z` and push a matching `vX.Y.Z` tag.
+
+The Release workflow then verifies, builds, attaches the artifacts
+(`opencode-keycloak-auth.js` + the tarball), and **sets the GitHub Release
+description from the matching `CHANGELOG.md` section** — so always update the
+changelog before tagging. (If no section matches the version, it falls back to
+auto-generated notes.)
