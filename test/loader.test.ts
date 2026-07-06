@@ -173,6 +173,23 @@ describe("loader", () => {
     expect(fetchImpl.calls[1]?.params.get("refresh_token")).toBe("RT1");
   });
 
+  it("still returns the fresh token but WARNS when persistence fails", async () => {
+    vi.stubEnv("OPENCODE_KC_LOG", "warn");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const config = testConfig();
+    const client = { auth: { set: vi.fn(async () => Promise.reject(new Error("disk full"))) } };
+    const fetchImpl = jsonFetch([
+      { body: { access_token: "NEW", refresh_token: "NEW_RT", expires_in: 300 } },
+    ]);
+
+    const loader = createLoader(config, { client: client as never, fetchImpl, now: () => 999_000 });
+    const result = await loader(async () => oauth(), provider);
+
+    expect(result).toEqual({ apiKey: "NEW" }); // request is NOT blocked by the persist failure
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/failed to persist/i);
+  });
+
   it("clears the in-flight refresh after a failure so a later request can retry", async () => {
     const config = testConfig();
     const client = fakeClient();

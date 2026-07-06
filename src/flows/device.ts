@@ -7,6 +7,7 @@
 import type { AuthOAuthResult } from "@opencode-ai/plugin";
 import type { KeycloakConfig } from "../config.js";
 import { pollDeviceToken, startDeviceAuthorization } from "../keycloak.js";
+import { log } from "../log.js";
 import { toSuccess } from "./shared.js";
 
 export interface DeviceFlowDeps {
@@ -45,6 +46,7 @@ export async function deviceMethod(
         const result = await pollDeviceToken(config, device.deviceCode, deps);
         switch (result.status) {
           case "complete":
+            log.info(`device login succeeded for ${config.providerId}`);
             return toSuccess(result.tokens);
           case "slow_down":
             // RFC 8628 §3.5: increase the interval by 5s on slow_down.
@@ -53,10 +55,14 @@ export async function deviceMethod(
           case "pending":
             break;
           case "denied":
+            log.error(`device login denied by the user for ${config.providerId}`);
+            return { type: "failed" };
           case "expired":
+            log.error(`device code expired before approval for ${config.providerId}`);
             return { type: "failed" };
         }
       }
+      log.error(`device login timed out waiting for approval for ${config.providerId}`);
       return { type: "failed" };
     },
   };

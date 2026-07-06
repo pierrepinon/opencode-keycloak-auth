@@ -18,7 +18,8 @@
  */
 import type { AuthHook, PluginInput } from "@opencode-ai/plugin";
 import { refreshTokens, type TokenSet } from "./keycloak.js";
-import { RefreshFailedError } from "./errors.js";
+import { RefreshFailedError, describe } from "./errors.js";
+import { log } from "./log.js";
 import type { KeycloakConfig } from "./config.js";
 
 type Loader = NonNullable<AuthHook["loader"]>;
@@ -45,6 +46,10 @@ export function createLoader(config: KeycloakConfig, deps: LoaderDeps): Loader {
           ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}),
           now,
         });
+        log.info(
+          `refreshed access token for ${config.providerId} ` +
+            `(valid ${Math.round((next.expiresAt - now()) / 1000)}s, refresh token rotated)`,
+        );
 
         // Persist the rotated tokens so subsequent runs start fresh. Storage and
         // file permissions are owned by OpenCode (auth.json, mode 0600).
@@ -58,12 +63,21 @@ export function createLoader(config: KeycloakConfig, deps: LoaderDeps): Loader {
               expires: next.expiresAt,
             },
           });
-        } catch {
+        } catch (persistError) {
           // Persisting failed (e.g. server transient) — the access token is still
-          // valid for this run, so proceed rather than blocking the request.
+          // valid for this run, so proceed rather than blocking the request. But
+          // WARN: if the rotated refresh token was not saved and Keycloak rotates
+          // refresh tokens, the next run would present a stale token and fail.
+          log.warn(
+            `refreshed OK but failed to persist the rotated tokens for ${config.providerId} ` +
+              `(${describe(persistError)}); the next run may need to re-refresh or re-login.`,
+          );
         }
 
         return next;
+      } catch (refreshError) {
+        log.error(`token refresh failed for ${config.providerId}: ${describe(refreshError)}`);
+        throw refreshError;
       } finally {
         // Whether it resolved or rejected, the next expiry starts a fresh attempt.
         inFlight = null;
@@ -75,10 +89,18 @@ export function createLoader(config: KeycloakConfig, deps: LoaderDeps): Loader {
   return async (auth) => {
     const current = await auth();
     // Not authenticated through this OAuth provider — let OpenCode handle it.
-    if (!current || current.type !== "oauth") return {};
+    if (!current || current.type !== "oauth") {
+      log.debug(`no oauth credentials stored for ${config.providerId}; deferring to OpenCode`);
+      return {};
+    }
 
     const leewayMs = config.refreshLeewaySeconds * 1000;
+    const secondsToExpiry = Math.round((current.expires - now()) / 1000);
     const needsRefresh = current.expires - now() < leewayMs;
+    log.debug(
+      `loader for ${config.providerId}: access token expires in ${secondsToExpiry}s ` +
+        `(leeway ${config.refreshLeewaySeconds}s) -> ${needsRefresh ? "refreshing" : "using cached"}`,
+    );
 
     if (!needsRefresh) {
       return { apiKey: current.access };

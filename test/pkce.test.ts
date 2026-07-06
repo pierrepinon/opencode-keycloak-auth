@@ -24,3 +24,25 @@ describe("pkce", () => {
     expect(randomState()).not.toBe(randomState());
   });
 });
+
+describe("base64url", () => {
+  it("encodes without padding and uses the URL-safe alphabet", () => {
+    // 0xFB 0xFF -> standard base64 "+/8=" which must become "-_8" (no padding).
+    expect(base64url(Buffer.from([0xfb, 0xff]))).toBe("-_8");
+  });
+
+  it("never emits +, / or = characters", () => {
+    for (let i = 0; i < 50; i++) {
+      const encoded = base64url(Buffer.from(Array.from({ length: i }, (_, n) => (n * 37 + i) & 0xff)));
+      expect(encoded).not.toMatch(/[+/=]/);
+    }
+  });
+});
+
+describe("randomState", () => {
+  it("honours a custom byte length (base64url expands ~4/3)", () => {
+    // 24 bytes -> 32 base64url chars (no padding); 3 bytes -> 4 chars.
+    expect(randomState(24).length).toBe(32);
+    expect(randomState(3).length).toBe(4);
+  });
+});

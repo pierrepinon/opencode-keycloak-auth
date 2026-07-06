@@ -9,6 +9,8 @@
  * No secrets are read or stored here: the Keycloak client is a PUBLIC client
  * and PKCE is mandatory, so there is deliberately no `clientSecret` option.
  */
+import { ConfigError } from "./errors.js";
+import { log } from "./log.js";
 
 export interface KeycloakPluginOptions {
   /** Provider id this plugin attaches its auth hook to. Default: `keycloak`. */
@@ -133,15 +135,30 @@ export function resolveConfig(
   const issuerRaw = options.issuer ?? env("ISSUER", source);
   const clientId = options.clientId ?? env("CLIENT_ID", source);
 
-  if (!issuerRaw) {
-    throw new Error(
-      `Missing Keycloak issuer. Set ${ENV_PREFIX}ISSUER (e.g. https://kc.example.com/realms/my-realm) ` +
-        `or the "issuer" plugin option in opencode.json.`,
+  // Collect every missing required setting so the error names all of them at
+  // once (instead of surfacing them one restart at a time).
+  if (!issuerRaw || !clientId) {
+    const missing: string[] = [];
+    if (!issuerRaw) missing.push("issuer");
+    if (!clientId) missing.push("clientId");
+    const hints: Record<string, string> = {
+      issuer: `${ENV_PREFIX}ISSUER (e.g. https://kc.example.com/realms/my-realm) or the "issuer" plugin option`,
+      clientId: `${ENV_PREFIX}CLIENT_ID or the "clientId" plugin option`,
+    };
+    throw new ConfigError(
+      `Missing required Keycloak setting(s): ${missing.join(", ")}. ` +
+        `Set ${missing.map((m) => hints[m]).join("; and ")} in opencode.json.`,
+      missing,
     );
   }
-  if (!clientId) {
-    throw new Error(
-      `Missing Keycloak client id. Set ${ENV_PREFIX}CLIENT_ID or the "clientId" plugin option in opencode.json.`,
+
+  const issuer = normalizeIssuer(issuerRaw);
+  // Soft validation: a Keycloak issuer is always `.../realms/<realm>`. Warn (do
+  // not fail) so an obviously wrong issuer is caught before it 404s at login.
+  if (!/\/realms\/[^/]+$/.test(issuer)) {
+    log.warn(
+      `issuer ${JSON.stringify(issuer)} does not look like a Keycloak realm URL ` +
+        `(expected it to end with /realms/<realm>); the token/authorize endpoints will likely 404.`,
     );
   }
 
@@ -153,9 +170,9 @@ export function resolveConfig(
   const browserTimeoutRaw =
     options.browserTimeoutSeconds ?? env("BROWSER_TIMEOUT", source) ?? DEFAULTS.browserTimeoutSeconds;
 
-  return {
+  const resolved: KeycloakConfig = {
     providerId: options.providerId ?? env("PROVIDER_ID", source) ?? DEFAULTS.providerId,
-    issuer: normalizeIssuer(issuerRaw),
+    issuer,
     clientId,
     scopes: toScopes(scopesRaw, toBool(offlineAccessRaw, `${ENV_PREFIX}OFFLINE_ACCESS`)),
     callbackHost: options.callbackHost ?? env("CALLBACK_HOST", source) ?? DEFAULTS.callbackHost,
@@ -167,6 +184,13 @@ export function resolveConfig(
     refreshLeewaySeconds: toNonNegativeInt(refreshLeewayRaw, `${ENV_PREFIX}REFRESH_LEEWAY`),
     browserTimeoutSeconds: toNonNegativeInt(browserTimeoutRaw, `${ENV_PREFIX}BROWSER_TIMEOUT`),
   };
+
+  log.debug(
+    `resolved config: providerId=${resolved.providerId} issuer=${resolved.issuer} ` +
+      `clientId=${resolved.clientId} scopes=[${resolved.scopes.join(" ")}] ` +
+      `refreshLeeway=${resolved.refreshLeewaySeconds}s`,
+  );
+  return resolved;
 }
 
 /**

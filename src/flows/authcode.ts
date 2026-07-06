@@ -18,6 +18,7 @@ import { redirectUri, type KeycloakConfig } from "../config.js";
 import { exchangeCode } from "../keycloak.js";
 import { generatePkce, randomState } from "../pkce.js";
 import { describe } from "../errors.js";
+import { log } from "../log.js";
 import { buildAuthorizeUrl, toSuccess } from "./shared.js";
 
 const SUCCESS_PAGE =
@@ -133,8 +134,11 @@ export async function browserAutoMethod(config: KeycloakConfig): Promise<AuthOAu
           verifier: pkce.verifier,
           redirectUri: redirectUri(config),
         });
+        log.info(`browser (auto-capture) login succeeded for ${config.providerId}`);
         return toSuccess(tokens);
-      } catch {
+      } catch (err) {
+        // Previously swallowed silently, leaving the user with an opaque "failed".
+        log.error(`browser (auto-capture) login failed for ${config.providerId}: ${describe(err)}`);
         return { type: "failed" };
       } finally {
         server.close();
@@ -164,8 +168,10 @@ export function browserCodeMethod(config: KeycloakConfig): AuthOAuthResult {
           verifier: pkce.verifier,
           redirectUri: redirectUri(config),
         });
+        log.info(`browser (paste-code) login succeeded for ${config.providerId}`);
         return toSuccess(tokens);
-      } catch {
+      } catch (err) {
+        log.error(`browser (paste-code) login failed for ${config.providerId}: ${describe(err)}`);
         return { type: "failed" };
       }
     },

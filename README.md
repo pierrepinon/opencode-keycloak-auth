@@ -117,6 +117,7 @@ environment variables.**
 | `OPENCODE_KC_BASE_URL`        | `baseUrl`               | —            | Provider base URL (informational)                             |
 | `OPENCODE_KC_REFRESH_LEEWAY`  | `refreshLeewaySeconds`  | `30`         | Refresh this many seconds before expiry                       |
 | `OPENCODE_KC_BROWSER_TIMEOUT` | `browserTimeoutSeconds` | `300`        | Browser callback wait timeout                                 |
+| `OPENCODE_KC_LOG`             | —                       | `warn`       | Log level: `silent`/`error`/`warn`/`info`/`debug` (see below) |
 
 ## Keycloak client setup
 
@@ -137,13 +138,13 @@ Create a client in your realm with:
 ### Staying logged in (offline tokens)
 
 By default the plugin requests the **`offline_access`** scope so a single
-`opencode auth login` keeps working across days. This matters because a *regular*
+`opencode auth login` keeps working across days. This matters because a _regular_
 Keycloak refresh token only lives as long as the **SSO session**, which is capped
 by the realm's **SSO Session Idle** (default 30 min) and **SSO Session Max**
 (default 10h). Leave OpenCode overnight and the session expires, the refresh
 fails with `invalid_grant`, and you are forced to log in again every morning.
 
-> Note: the client's **Access Token Lifespan** does *not* control this — it only
+> Note: the client's **Access Token Lifespan** does _not_ control this — it only
 > sets how long each access token is valid, not the refresh token / session.
 
 An **offline token** is exempt from those caps: it is governed instead by
@@ -246,6 +247,31 @@ opencode auth login
 On headless hosts (SSH / container / no `DISPLAY`) the **Device code** method is
 offered first automatically.
 
+## Logging & diagnostics
+
+The plugin logs to the console (which OpenCode captures), prefixed with
+`[keycloak-auth]`. Control verbosity with **`OPENCODE_KC_LOG`**:
+
+| Level            | What you see                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `silent`         | nothing                                                                                                     |
+| `error`          | login / refresh failures                                                                                    |
+| `warn` (default) | the above **plus** misconfiguration (missing issuer/clientId → provider in error mode) and persist failures |
+| `info`           | the above plus successful configuration, logins and token refreshes                                         |
+| `debug`          | the above plus the per-request refresh decision and every Keycloak call (never token values)                |
+
+Secrets are never logged — access/refresh tokens and authorization codes are
+withheld entirely (or redacted to a short suffix). To trace a refresh problem:
+
+```bash
+OPENCODE_KC_LOG=debug opencode --print-logs --log-level DEBUG
+```
+
+The default `warn` level exists specifically so the most common failure — a
+dropped/incomplete config — is no longer silent: you get
+`configuration incomplete — provider "…" registered in ERROR mode (missing: issuer, clientId)`
+instead of a provider that mysteriously stops working.
+
 ## Troubleshooting
 
 **`Unknown provider "keycloak"` / the provider is missing from `auth login`.**
@@ -273,6 +299,14 @@ max lifespan). This is a realm/session setting, not a plugin bug — note it als
 affects OpenCode's native MCP OAuth against the same realm. Fix it durably with
 an **offline token**: keep `offline_access` enabled (the default) and make sure
 the client is granted that scope. See _Staying logged in (offline tokens)_.
+
+**Auth suddenly fails / the provider "stops working" after it used to be fine.**
+Most often the config was dropped (env vars unset, or the plugin options removed
+from `opencode.json`), so the plugin loads in **error mode** with no loader. Since
+v0.3.0 this is logged at `warn`: look for
+`configuration incomplete — provider "…" registered in ERROR mode (missing: …)`.
+Restore `OPENCODE_KC_ISSUER`/`OPENCODE_KC_CLIENT_ID` (or the plugin options) and
+re-run. Run with `OPENCODE_KC_LOG=debug` to trace the token refresh lifecycle.
 
 **`Failed to fetch models.dev`.** Harmless — see the offline note in Install. Set
 `OPENCODE_DISABLE_MODELS_FETCH=1` to silence it.

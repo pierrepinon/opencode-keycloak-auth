@@ -20,6 +20,8 @@ import { hasLocalBrowser } from "./browser.js";
 import { browserAutoMethod, browserCodeMethod } from "./flows/authcode.js";
 import { deviceMethod } from "./flows/device.js";
 import { createLoader } from "./loader.js";
+import { ConfigError } from "./errors.js";
+import { log } from "./log.js";
 
 export type { KeycloakPluginOptions, KeycloakConfig } from "./config.js";
 
@@ -78,11 +80,27 @@ export const KeycloakAuthPlugin: Plugin = async (input, options?: PluginOptions)
     // Never throw at load time: that makes OpenCode drop the plugin silently and
     // the provider never shows up in `opencode auth login`. Register the provider
     // anyway and surface the real error only when a login method is picked.
+    const providerId = resolveProviderId(opts);
     const reason = cause instanceof Error ? cause.message : String(cause);
+    // Log loudly: a missing/incomplete config is the single most common failure
+    // (e.g. env vars or plugin options dropped), and it previously produced no
+    // signal at all — the provider just silently stopped working.
+    const missing = cause instanceof ConfigError ? cause.missing : [];
+    log.warn(
+      `configuration incomplete — provider ${JSON.stringify(providerId)} registered in ERROR mode` +
+        (missing.length ? ` (missing: ${missing.join(", ")})` : "") +
+        `; auth will fail until fixed. ${reason}`,
+    );
     return {
-      auth: { provider: resolveProviderId(opts), methods: buildErrorMethods(reason) },
+      auth: { provider: providerId, methods: buildErrorMethods(reason) },
     };
   }
+
+  log.info(
+    `configured: provider=${config.providerId} issuer=${config.issuer} ` +
+      `clientId=${config.clientId} scopes=[${config.scopes.join(" ")}] ` +
+      `login=${preferDevice ? "device-first" : "browser-first"}`,
+  );
 
   const auth: AuthHook = {
     provider: config.providerId,

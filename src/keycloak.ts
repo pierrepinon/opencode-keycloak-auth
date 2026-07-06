@@ -6,6 +6,7 @@
  */
 import { KeycloakNetworkError, KeycloakOAuthError } from "./errors.js";
 import { endpoints, type KeycloakConfig } from "./config.js";
+import { log } from "./log.js";
 
 /** Normalized token set with an absolute expiry timestamp (ms since epoch). */
 export interface TokenSet {
@@ -54,6 +55,10 @@ async function postForm(
   params: Record<string, string>,
   fetchImpl: typeof fetch,
 ): Promise<Record<string, unknown>> {
+  // Log the shape of the request but NEVER its body — it carries codes and
+  // refresh tokens. `grant_type` is safe and enough to trace the flow.
+  log.debug(`POST ${endpoint} (grant_type=${params["grant_type"] ?? "n/a"})`);
+
   let response: Response;
   try {
     response = await fetchImpl(endpoint, {
@@ -62,6 +67,7 @@ async function postForm(
       body: new URLSearchParams(params).toString(),
     });
   } catch (cause) {
+    log.debug(`network error calling ${endpoint}: ${cause instanceof Error ? cause.message : String(cause)}`);
     throw new KeycloakNetworkError(endpoint, cause);
   }
 
@@ -70,6 +76,9 @@ async function postForm(
   if (!response.ok) {
     const error = typeof body.error === "string" ? body.error : `http_${response.status}`;
     const description = typeof body.error_description === "string" ? body.error_description : undefined;
+    log.debug(
+      `Keycloak ${response.status} from ${endpoint}: ${error}${description ? ` (${description})` : ""}`,
+    );
     throw new KeycloakOAuthError(response.status, error, description);
   }
   return body;

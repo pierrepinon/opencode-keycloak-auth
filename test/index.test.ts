@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { KeycloakAuthPlugin } from "../src/index.js";
 
 // The plugin factory only reads `input.client`; everything else is unused here.
@@ -40,5 +40,37 @@ describe("plugin factory", () => {
   it("falls back to the default provider id when none is configured", async () => {
     const { auth } = await KeycloakAuthPlugin(input, {});
     expect(auth?.provider).toBe("keycloak"); // DEFAULTS.providerId
+  });
+
+  it("WARNS loudly (naming the missing fields) when the config is incomplete", async () => {
+    vi.stubEnv("OPENCODE_KC_LOG", "warn");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await KeycloakAuthPlugin(input, { providerId: "keycloak" }); // missing issuer + clientId
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]?.[0]);
+    expect(line).toMatch(/ERROR mode/);
+    expect(line).toMatch(/missing: issuer, clientId/);
+    expect(line).toMatch(/keycloak/);
+  });
+
+  it("emits an info line with the resolved config when fully configured", async () => {
+    vi.stubEnv("OPENCODE_KC_LOG", "info");
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    await KeycloakAuthPlugin(input, { issuer: "https://kc/realms/r", clientId: "cli" });
+
+    const line = String(info.mock.calls.find((c) => String(c[0]).includes("configured:"))?.[0]);
+    expect(line).toMatch(/provider=keycloak/);
+    expect(line).toMatch(/clientId=cli/);
+    expect(line).toMatch(/offline_access/);
+  });
+
+  it("leads with the device flow in headless environments", async () => {
+    vi.stubEnv("CI", "true"); // forces hasLocalBrowser() -> false on any platform
+    const { auth } = await KeycloakAuthPlugin(input, { issuer: "https://kc/realms/r", clientId: "cli" });
+    expect(auth?.methods[0]?.label).toMatch(/device/i);
+    expect(auth?.methods[0]?.label).toMatch(/recommended/i);
   });
 });

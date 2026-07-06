@@ -6,6 +6,22 @@
  * messages rather than opaque stack traces.
  */
 
+/**
+ * The plugin configuration is incomplete or invalid (e.g. missing issuer or
+ * clientId). Carries the list of missing/invalid fields so callers can log a
+ * precise, actionable message instead of a generic failure.
+ */
+export class ConfigError extends Error {
+  /** Names of the required settings that are missing or invalid. */
+  readonly missing: readonly string[];
+
+  constructor(message: string, missing: readonly string[] = []) {
+    super(message);
+    this.name = "ConfigError";
+    this.missing = missing;
+  }
+}
+
 /** Keycloak returned a structured OAuth error (RFC 6749 §5.2). */
 export class KeycloakOAuthError extends Error {
   readonly error: string;
