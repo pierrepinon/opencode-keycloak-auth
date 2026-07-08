@@ -34,8 +34,11 @@ the provider validates (e.g. JWKS + claim policies).
   plus a **paste-the-code** fallback.
 - **Device Authorization Grant** fallback for headless / SSH / container hosts —
   auto-selected (offered first) when no local browser is detected.
-- **Automatic refresh**: the access token is refreshed when it expires within
-  30s (configurable) and the rotated tokens are persisted by OpenCode.
+- **Automatic refresh, per request**: the loader installs a custom `fetch` that
+  refreshes the access token when it expires within 30s (configurable) and
+  persists the rotated tokens — on **every** request, not just at startup. A
+  long idle (e.g. overnight) never leaves you with a stale token: no restart, no
+  re-login.
 - **Public client, PKCE only** — no client secret is ever read or stored.
 - **Zero runtime dependencies** — only Node built-ins (`node:crypto`,
   `node:http`) and the global `fetch`. Builds and installs **offline** (suitable
@@ -317,6 +320,15 @@ affects OpenCode's native MCP OAuth against the same realm. Fix it durably with
 an **offline token**: keep `offline_access` enabled (the default) and make sure
 the client is granted that scope. See _Staying logged in (offline tokens)_.
 
+**`Unauthorized` (401) after a long idle, fixed by **restarting** OpenCode — no
+`auth login` needed.** Distinct from the case above (that one needs a re-login).
+Here the stored refresh token is still valid — restarting refreshes it fine —
+but the running process was serving a token frozen at startup. This was a plugin
+bug fixed in **v0.4.1**: OpenCode calls the auth `loader` only once (when it
+memoizes the SDK client), so a static `apiKey` never got refreshed at runtime and
+expired mid-session. The loader now installs a custom `fetch` that refreshes per
+request. Upgrade to ≥ 0.4.1 and reload the plugin.
+
 **Auth suddenly fails / the provider "stops working" after it used to be fine.**
 Most often the config was dropped (env vars unset, or the plugin options removed
 from `opencode.json`), so the plugin loads in **error mode** with no loader. Since
@@ -336,8 +348,13 @@ This plugin targets `@opencode-ai/plugin` ≥ 1.17 (`AuthHook`):
 - `methods[]` — three `oauth` methods: browser auto-capture (`method: "auto"`),
   browser paste (`method: "code"`), and device flow (`method: "auto"` whose
   `callback()` polls the token endpoint).
-- `loader(auth, provider)` — reads stored tokens, refreshes when near expiry,
-  persists via `client.auth.set(...)`, and returns `{ apiKey }`.
+- `loader(auth, provider)` — OpenCode calls this **once**, when it builds and
+  memoizes the provider's SDK client (not before every request). Returning a bare
+  `{ apiKey }` would freeze that access token for the life of the process, so the
+  loader instead returns a **custom `fetch`** that re-resolves and refreshes the
+  token on **every** outgoing request (reading stored tokens, refreshing when near
+  expiry, and persisting via `client.auth.set(...)`). Freshness is therefore
+  independent of how often OpenCode invokes the loader.
 
 ## Development
 

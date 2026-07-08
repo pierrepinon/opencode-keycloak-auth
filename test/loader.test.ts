@@ -13,6 +13,17 @@ const provider = {} as never;
 const oauth = (over: Partial<{ access: string; refresh: string; expires: number }> = {}) =>
   ({ type: "oauth", access: "OLD", refresh: "OLD_RT", expires: 1_000_000, ...over }) as const;
 
+/**
+ * The loader now returns `{ apiKey, fetch }`: OpenCode calls the loader once and
+ * memoizes the SDK client, so freshness lives in the per-request `fetch`, not the
+ * static apiKey. These helpers assert the initial apiKey while tolerating the
+ * added `fetch`, and let tests drive the custom fetch directly.
+ */
+function expectApiKey(result: Record<string, unknown>, apiKey: string): void {
+  expect(result["apiKey"]).toBe(apiKey);
+  expect(typeof result["fetch"]).toBe("function");
+}
+
 describe("loader", () => {
   it("returns the stored access token unchanged when it is still fresh", async () => {
     const config = testConfig();
@@ -23,7 +34,7 @@ describe("loader", () => {
     const loader = createLoader(config, { client: client as never, fetchImpl, now });
     const result = await loader(async () => oauth(), provider);
 
-    expect(result).toEqual({ apiKey: "OLD" });
+    expectApiKey(result, "OLD");
     expect(fetchImpl.calls).toHaveLength(0);
     expect(client.auth.set).not.toHaveBeenCalled();
   });
@@ -39,7 +50,7 @@ describe("loader", () => {
     const loader = createLoader(config, { client: client as never, fetchImpl, now });
     const result = await loader(async () => oauth(), provider);
 
-    expect(result).toEqual({ apiKey: "NEW" });
+    expectApiKey(result, "NEW");
     expect(fetchImpl.calls[0]?.params.get("grant_type")).toBe("refresh_token");
     expect(fetchImpl.calls[0]?.params.get("refresh_token")).toBe("OLD_RT");
     expect(client.auth.set).toHaveBeenCalledWith({
@@ -83,7 +94,7 @@ describe("loader", () => {
     const loader = createLoader(config, { client: client as never, fetchImpl, now });
     const result = await loader(async () => oauth(), provider);
 
-    expect(result).toEqual({ apiKey: "NEW" });
+    expectApiKey(result, "NEW");
     expect(fetchImpl.calls).toHaveLength(1);
   });
 
@@ -98,7 +109,7 @@ describe("loader", () => {
       fetchImpl: fresh,
       now: () => 1_000_000 - 30_000,
     });
-    expect(await atBoundary(async () => oauth(), provider)).toEqual({ apiKey: "OLD" });
+    expectApiKey(await atBoundary(async () => oauth(), provider), "OLD");
     expect(fresh.calls).toHaveLength(0);
 
     // one ms inside the leeway window -> refreshed
@@ -107,7 +118,7 @@ describe("loader", () => {
       fetchImpl: stale,
       now: () => 1_000_000 - 30_000 + 1,
     });
-    expect(await insideBoundary(async () => oauth(), provider)).toEqual({ apiKey: "NEW" });
+    expectApiKey(await insideBoundary(async () => oauth(), provider), "NEW");
     expect(stale.calls).toHaveLength(1);
   });
 
@@ -127,8 +138,8 @@ describe("loader", () => {
       loader(async () => oauth(), provider),
     ]);
 
-    expect(a).toEqual({ apiKey: "NEW" });
-    expect(b).toEqual({ apiKey: "NEW" });
+    expectApiKey(a, "NEW");
+    expectApiKey(b, "NEW");
     // The refresh token was posted exactly once — the crux of the fix. Two calls
     // here would rotate it once and get invalid_grant on the second, forcing a
     // spurious re-login.
@@ -162,13 +173,13 @@ describe("loader", () => {
     });
 
     const r1 = await loader(async () => stored as never, provider);
-    expect(r1).toEqual({ apiKey: "NEW1" });
+    expectApiKey(r1, "NEW1");
     expect(fetchImpl.calls[0]?.params.get("refresh_token")).toBe("OLD_RT");
 
     // Time moves on; the freshly stored token (expires = 980_000 + 300_000) nears expiry.
     clock.t = stored.expires - 10_000;
     const r2 = await loader(async () => stored as never, provider);
-    expect(r2).toEqual({ apiKey: "NEW2" });
+    expectApiKey(r2, "NEW2");
     // Must use the rotated token from the first refresh — not the stale OLD_RT.
     expect(fetchImpl.calls[1]?.params.get("refresh_token")).toBe("RT1");
   });
@@ -185,7 +196,7 @@ describe("loader", () => {
     const loader = createLoader(config, { client: client as never, fetchImpl, now: () => 999_000 });
     const result = await loader(async () => oauth(), provider);
 
-    expect(result).toEqual({ apiKey: "NEW" }); // request is NOT blocked by the persist failure
+    expectApiKey(result, "NEW"); // request is NOT blocked by the persist failure
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toMatch(/failed to persist/i);
   });
@@ -206,8 +217,76 @@ describe("loader", () => {
     // A later request (e.g. after the user re-logged in, rotating a fresh token
     // into storage) must not be stuck on the previously-rejected promise.
     const result = await loader(async () => oauth({ refresh: "FRESH_RT" }), provider);
-    expect(result).toEqual({ apiKey: "NEW" });
+    expectApiKey(result, "NEW");
     expect(fetchImpl.calls).toHaveLength(2);
     expect(fetchImpl.calls[1]?.params.get("refresh_token")).toBe("FRESH_RT");
+  });
+
+  it("refreshes on a later request via the custom fetch, with no restart (overnight-idle fix)", async () => {
+    // Regression test for the core bug: OpenCode calls the loader ONCE (when it
+    // memoizes the SDK client) and then only calls the returned `fetch`. A static
+    // apiKey would freeze the token and 401 after a long idle. The custom fetch
+    // must re-resolve and refresh the token per request instead.
+    const config = testConfig();
+    let stored = { type: "oauth", access: "OLD", refresh: "OLD_RT", expires: 1_000_000 };
+    const client = {
+      auth: {
+        set: vi.fn(async ({ body }: { body: typeof stored }) => {
+          stored = { ...body };
+          return {};
+        }),
+      },
+    };
+    const clock = { t: 900_000 }; // token still fresh (100s > 30s leeway) at load time
+
+    // Capturing fetch: records the Authorization header and serves a rotated token
+    // set from the /token endpoint; everything else is a generic downstream 200.
+    const calls: Array<{ url: string; authorization: string | null; body: string }> = [];
+    let tokenServed = false;
+    const fetchImpl = Object.assign(
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({
+          url: u,
+          authorization: new Headers(init?.headers).get("authorization"),
+          body: String(init?.body ?? ""),
+        });
+        if (u.includes("/token")) {
+          tokenServed = true;
+          return new Response(
+            JSON.stringify({ access_token: "NEW", refresh_token: "NEW_RT", expires_in: 300 }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+      { calls },
+    ) as unknown as typeof fetch;
+
+    const loader = createLoader(config, { client: client as never, fetchImpl, now: () => clock.t });
+
+    // Loader runs ONCE while the token is fresh — as at OpenCode startup.
+    const result = await loader(async () => stored as never, provider);
+    expectApiKey(result, "OLD");
+    expect(calls).toHaveLength(0); // no token traffic yet
+    expect(tokenServed).toBe(false);
+
+    // Simulate leaving OpenCode idle overnight: the token is long expired and
+    // OpenCode reuses the memoized client, calling only the custom fetch.
+    clock.t = 1_500_000;
+    const authedFetch = result["fetch"] as typeof fetch;
+    await authedFetch("https://provider.example.com/v1/chat/completions", {
+      headers: { Authorization: "Bearer OLD" }, // the stale bearer OpenCode would have set
+    });
+
+    // The custom fetch refreshed the token and sent the FRESH bearer downstream —
+    // no restart, no re-login. And it persisted the rotated tokens for next time.
+    const tokenCall = calls.find((c) => c.url.includes("/token"));
+    const downstream = calls.find((c) => c.url.includes("provider.example.com"));
+    expect(tokenCall?.body).toContain("grant_type=refresh_token");
+    expect(downstream?.authorization).toBe("Bearer NEW");
+    expect(downstream?.authorization).not.toBe("Bearer OLD");
+    expect(stored.access).toBe("NEW");
+    expect(stored.refresh).toBe("NEW_RT");
   });
 });

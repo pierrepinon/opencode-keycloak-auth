@@ -6,6 +6,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-08
+
+### Fixed
+
+- **Token refresh now happens per request, not just at startup.** OpenCode calls
+  the auth `loader` only once — when it builds and memoizes the provider's SDK
+  client — so returning a static `{ apiKey }` froze the access token for the life
+  of the process. After a long idle (e.g. overnight) that token expired and every
+  request failed with `Unauthorized` (401) until OpenCode was **restarted** — no
+  `auth login` required, because the stored (offline) refresh token was still
+  valid. The loader now installs a custom `fetch` that re-resolves and refreshes
+  the token on every outgoing request, so freshness no longer depends on how often
+  OpenCode invokes the loader. Single-flight refresh, rotation handling, and
+  persistence are preserved.
+
 ## [0.4.0] - 2026-07-06
 
 ### Added
@@ -70,7 +85,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fallbacks, and a Device Authorization Grant for headless hosts. Automatic
   token refresh, public-client/PKCE-only, zero runtime dependencies.
 
-[Unreleased]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/AyRickk/opencode-keycloak-auth/compare/v0.2.1...v0.2.3
